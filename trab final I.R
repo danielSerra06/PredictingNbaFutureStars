@@ -5,25 +5,23 @@ date: "12/09/2020"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
-```
 
-Objective: Create a predictor capable of answering whether a player will stay at least 5 years in the NBA, according to his rookie stats.
+# Objective: Create a predictor capable of answering whether a player will stay at least 5 years in the NBA, according to his rookie stats.
 
-```{r}
+
 library(caret)
 library(gbm)
 library(readr)
 library(readxl)
 library(dplyr)
 library(VIM)
-```
 
-Loading datasets.
-I've used two datasets to complement the original. The first contains the draft year of the players. The second one contains their college and height.
 
-```{r}
+# Loading datasets.
+# I've used two datasets to complement the original. The first contains the draft year of the players. The second one contains their college and height.
+
+
 # Original dataset
 original <- read.csv("https://query.data.world/s/6uhvcowok54gcj5jz3i2ccwldlb6rl", 
                   header=TRUE, stringsAsFactors=FALSE)
@@ -41,34 +39,35 @@ data_height <- data_height[,c(2,6,8)]
 data_ <- inner_join(original, data_year, by = "Name")
 data_height <- data_height %>% rename(Name = player_name) %>% distinct()
 data_ <- left_join(data_, data_height, by = 'Name')
-```
 
-I notice that, from the original dataset the only variable with NA is 3 point percentage. As we have 3 point attempt and 3 points made, we can calculate the missing ones. They're all zeros.
 
-```{r}
+# I notice that, from the original dataset the only variable with NA is 3 point percentage. As we have 3 point attempt and 3 points made, we can calculate the missing ones.
+# They're all zeros.
+
+
 names(data_)[colSums(is.na(data_)) > 1]
 data_$X3P.[which(is.na(data_$X3P.))] <- 0 
 names(data_)[colSums(is.na(data_)) > 1]
-```
 
-With data_draft we can see that some players didn't had the chance to complete 5 years in the league(the original data is from 2016), so I'm gonna remove them.
 
-```{r}
+# With data_draft we can see that some players didn't had the chance to complete 5 years in the league(the original data is from 2016), so I'm gonna remove them.
+
+
 data_ <- filter(data_, `Year Drafted` < 2013)
-```
 
-Removing duplicated rows.
-Removing duplicated players with different heights. Maintaining the tallest ones.
 
-```{r}
+# Removing duplicated rows.
+# Removing duplicated players with different heights. Maintaining the tallest ones.
+
+
 data_ <- distinct(data_)
 
 data_1 <- data_ %>% group_by(GP, MIN, PTS, REB, AST, `Year Drafted`, college, TARGET_5Yrs) %>%  slice_max(player_height, n=1, with_ties = F) %>% ungroup()
-```
 
-Here I fix some observations of the dataset that contained some wrong information.
 
-```{r}
+# Here I fix some observations of the dataset that contained some wrong information.
+
+
 freq <- as.data.frame(epiDisplay::tab1(data_1$Name, graph = F))
 repeated <- filter(freq, output.table.Frequency >1)
 repeated <- repeated[,c(1,2)]
@@ -151,50 +150,42 @@ data_2 <- data_2[!(data_2$Name == 'Reggie Williams' & data_2$player_height == 1.
 data_2 <- data_2[!(data_2$Name == 'Steven Smith' & data_2$player_height == 2.06),]
 data_2 <- data_2[!(data_2$Name == 'Tim Hardaway' & data_2$TARGET_5Yrs == 0),]
 data_2 <- data_2[!(data_2$Name == 'Walker Russell' & data_2$TARGET_5Yrs == 0),]
-```
 
-Removing variables: Name, Year Drafted, REB, FGM, FGA, X3P.Made, X3PA, FTM, FTA.
 
-```{r}
+# Removing variables: Name, Year Drafted, REB, FGM, FGA, X3P.Made, X3PA, FTM, FTA.
+
+
 data_3 <- select(data_2, -Name, -`Year Drafted`, -REB, -FGM, -FGA, -X3P.Made, -X3PA, -FTM, -FTA)
-```
 
-Mutating the response variable into logic.
 
-```{r}
+# Mutating the response variable into logic.
+
 data_3$TARGET_5Yrs <- as.logical(data_3$TARGET_5Yrs)
 data_3$college <- as.factor(data_3$college)
-```
 
-The kNN function solve the problem with the NA in the remaining variables.
 
-```{r}
+# The kNN function solve the problem with the NA in the remaining variables.
+
 set.seed(217054060)
 dataKNN <- kNN(data_3, variable = c('player_height', 'college'), k =6)
 dataNoNA <- subset(dataKNN, select = GP:college)
-```
 
-Trying to find any variable with the variation near zero or zero.
-No one was found.
+# Trying to find any variable with the variation near zero or zero.
+# No one was found.
 
-```{r}
 nzv_ <- nearZeroVar(dataNoNA, saveMetrics = T)
 nzv_
-```
 
-Creating data partition for the model.
+# Creating data partition for the model.
 
-```{r}
 set.seed(217054060)
 inTrain <- createDataPartition(dataNoNA$TARGET_5Yrs, p = 0.75, list = F)
 training <- dataNoNA[inTrain,]
 testing <- dataNoNA[-inTrain,]
-```
 
-I've created a function to try some hyperparameters.
-The criteria was the AUC.
+# I've created a function to try some hyperparameters.
+# The criteria was the AUC.
 
-```{r}
 trainGBM <- function(train_data, test_data){
   results <- as.data.frame(matrix(ncol = 4))
   x <- list('interactionDepth', 'n.trees', 'shrinkage', 'AUC')
@@ -206,7 +197,7 @@ trainGBM <- function(train_data, test_data){
       shr <- c(0.05, 0.01, 0.1)
       for(s in shr){
         set.seed(217054060)
-        model <- gbm(TARGET_5Yrs ~ ., data = train_data, distribution =                                'bernoulli', 
+        model <- gbm(TARGET_5Yrs ~ ., data = train_data, distribution = 'bernoulli', 
                      n.trees = n, 
                      interaction.depth = i,
                      shrinkage = s,
@@ -225,15 +216,13 @@ trainGBM <- function(train_data, test_data){
 trainGBM(training, testing)
 
 # Best result:
-#n.trees =  50
-#interaction.depth =  5
-#shrinkage =  0.05
-#AUC =  0.8388475
-```
+# n.trees =  50
+# interaction.depth =  5
+# shrinkage =  0.05
+# AUC =  0.8388475
 
-Fact model.
+# Fact model.
 
-```{r}
 set.seed(217054060)
 modelFit <- gbm(TARGET_5Yrs ~ ., data = training, distribution =  'bernoulli', 
                 n.trees = 50, interaction.depth = 5, shrinkage = 0.05,
@@ -254,11 +243,9 @@ gbm.roc.area(testing$TARGET_5Yrs, pred)
 par(pty = "s")
 pROC::roc(testing$TARGET_5Yrs, pred, plot=T)
 par(pty = "m")
-```
 
-I've used the optimizer function to estimate better results.
+# I've used the optimizer function to estimate better results.
 
-```{r}
 optimizer<-function(predic,response){
   require(ROCR)
   predic2 = prediction(predic, response)
@@ -274,17 +261,13 @@ set.seed(217054060)
 predic_training <- predict(modelFit, training, type = 'response', n.trees = 32)
 c <- optimizer(predic_training, training$TARGET_5Yrs)
 c  # = 0.6273926
-```
 
-With c defined I can apply the model to the test sample.
+# With c defined I can apply the model to the test sample.
 
-```{r}
 classif <- pred >= c
-```
 
-Results:
+# Results:
 
-```{r}
 confusionMatrix(data = as.factor(classif), reference = as.factor(testing$TARGET_5Yrs))
-```
+
 
